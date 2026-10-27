@@ -841,9 +841,21 @@ class HumanInTheLoopMiddleware(AgentMiddleware[StateT, ContextT, ResponseT]):
                 )
                 if revised_tool_call is not None:
                     revised_tool_calls.append(revised_tool_call)
-                    if decision["type"] == "edit" and (
-                        (edited_id := revised_tool_call.get("id")) is not None
-                    ):
+                    if decision["type"] == "edit":
+                        edited_id = revised_tool_call.get("id")
+                        if edited_id is None:
+                            msg = (
+                                f"Tool call `{revised_tool_call['name']}` has no ID, so an edit "
+                                "cannot be applied to it. Make sure the chat model returns tool call IDs."
+                            )
+                            raise ValueError(msg)
+                        all_ids = [tc.get("id") for tc in last_ai_msg.tool_calls]
+                        if all_ids.count(edited_id) > 1:
+                            msg = (
+                                f"Tool call with ID {edited_id!r} cannot be edited because multiple "
+                                "tool calls in the same turn share this ID. Tool call IDs must be unique when applying edits."
+                            )
+                            raise ValueError(msg)
                         edited_tool_calls[edited_id] = decision["edited_action"]
                 if tool_message:
                     artificial_tool_messages.append(tool_message)

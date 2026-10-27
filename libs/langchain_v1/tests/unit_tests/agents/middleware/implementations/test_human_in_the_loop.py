@@ -1524,6 +1524,61 @@ def test_human_in_the_loop_middleware_edit_executes_reviewers_call_with_empty_to
     _assert_tool_messages_are_paired(final["messages"])
 
 
+def test_human_in_the_loop_middleware_edit_with_shared_id_raises_value_error() -> None:
+    """An edit on a tool call whose ID is shared with another call in the same turn raises."""
+
+    @tool
+    def write_file_tool(path: str, content: str) -> str:
+        """Write content to a file."""
+        return f"File written to {path}"
+
+    # Two tool calls sharing the same empty-string ID
+    model = FakeToolCallingModel(
+        tool_calls=[
+            [
+                ToolCall(
+                    name="write_file_tool", args={"path": "a.txt", "content": "1"}, id=""
+                ),
+                ToolCall(
+                    name="write_file_tool", args={"path": "b.txt", "content": "2"}, id=""
+                ),
+            ],
+            [],
+        ]
+    )
+    agent = create_agent(
+        model=model,
+        tools=[write_file_tool],
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on={"write_file_tool": {"allowed_decisions": ["approve", "edit"]}}
+            )
+        ],
+        checkpointer=InMemorySaver(),
+    )
+    config: RunnableConfig = {"configurable": {"thread_id": "shared-id-raises"}}
+    agent.invoke({"messages": [HumanMessage("write both")]}, config)
+
+    with pytest.raises(ValueError, match="multiple tool calls in the same turn share this ID"):
+        agent.invoke(
+            Command(
+                resume={
+                    "decisions": [
+                        {
+                            "type": "edit",
+                            "edited_action": {
+                                "name": "write_file_tool",
+                                "args": {"path": "a.txt", "content": "edited"},
+                            },
+                        },
+                        {"type": "approve"},
+                    ]
+                }
+            ),
+            config,
+        )
+
+
 def test_human_in_the_loop_middleware_edit_can_redirect_to_another_tool() -> None:
     """A reviewer may redirect the call to a different tool."""
     executed: list[str] = []
